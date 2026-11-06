@@ -72,6 +72,17 @@ class FirstBusStopEntity(CoordinatorEntity[FirstBusStopCoordinator]):
     )
 
   @callback
+  def async_entity_id_changed(self, old_entity_id: str) -> None:
+    """Run when the entity_id has been changed in the entity registry (HA 2026.11+).
+
+    Nothing we set up is keyed on the entity_id (the minute timer and coordinator listener aren't),
+    so the entity can be renamed in place rather than being removed and re-added.
+    """
+    parent = getattr(super(), "async_entity_id_changed", None)
+    if parent is not None:
+      parent(old_entity_id)
+
+  @callback
   def _async_minute_tick(self, _: datetime) -> None:
     self.async_write_ha_state()
 
