@@ -56,3 +56,28 @@ The following attributes are available in addition
 | `service_number` | `string` | The name/number of the next bus |
 | `destination` | `string` | The destination of the next bus |
 | `is_live` | `boolean` | Determines if the bus is being tracked (`true`) or is from the timetable (`false`) |
+
+### Route Next Bus
+
+`sensor.<<NAME_OF_STOP>>_route_<<BUS>>_next_bus`
+
+A sensor is created for each bus service (route) at the stop. This will provide the number of minutes until the next bus on that specific route reaches the bus stop. If there is no known next bus for the route, then `unknown` will be returned.
+
+Because the services at a stop aren't known up front, route sensors are created for:
+
+* Any buses you've specified in the stop's configuration
+* Any services that appear in the stop's data. New services are added automatically as they are seen.
+
+Once a route sensor has been created it will remain after restarts, even if there are currently no buses due for that route. If you've filtered the stop to specific buses, only those routes will have sensors. Unwanted route sensors can be disabled from the entity settings (a deleted route sensor will be recreated the next time that service is seen).
+
+The following attributes are available in addition
+
+| Attribute | Type | Notes |
+|-----------|------|-------|
+| `service_ref` | `string` | The internal reference for the service |
+| `service_number` | `string` | The name/number of the route |
+| `destination` | `string` | The destination of the next bus on the route |
+| `due` | `datetime` | The timestamp of when the next bus on the route is due |
+| `is_live` | `boolean` | Determines if the bus is being tracked (`true`) or is from the timetable (`false`) |
+| `stop` | `string` | The ATCO code of the bus stop that is being tracked |
+| `buses` | `list` | The upcoming buses for the route. This is not recorded in the Home Assistant database. |
