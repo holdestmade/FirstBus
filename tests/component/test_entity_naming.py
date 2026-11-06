@@ -50,7 +50,11 @@ async def test_entities_are_named_from_device_and_translation(hass: HomeAssistan
 
     area = ar.async_get(hass).async_create("Hallway")
     dr.async_get(hass).async_update_device(device.id, area_id=area.id)
-    assert entity_registry.async_regenerate_entity_id(next_bus) == "sensor.hallway_home_next_bus"
+    # Newer HA versions (e.g. 2026.11) also prefix the area name, older 2026.x versions don't
+    assert entity_registry.async_regenerate_entity_id(next_bus) in (
+      "sensor.home_next_bus",
+      "sensor.hallway_home_next_bus",
+    )
 
 
 async def test_entity_id_can_be_renamed(hass: HomeAssistant, mock_bus_times):
