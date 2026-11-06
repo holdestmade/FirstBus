@@ -2,7 +2,7 @@ from unittest import mock
 import pytest
 from custom_components.first_bus.config import async_validate_main_config
 from custom_components.first_bus.const import CONFIG_NAME, CONFIG_STOP, CONFIG_BUSES
-from custom_components.first_bus.api_client import FirstBusApiClient
+from custom_components.first_bus.api_client import FirstBusApiClient, FirstBusApiError
 
 @pytest.mark.asyncio
 async def test_when_data_valid_then_no_errors_returned():
@@ -205,3 +205,36 @@ async def test_when_atco_code_is_duplicate_then_error_returned():
     assert config[CONFIG_STOP] == original_config[CONFIG_STOP]
     assert CONFIG_BUSES in config
     assert config[CONFIG_BUSES] == []
+
+@pytest.mark.asyncio
+async def test_when_buses_have_whitespace_then_buses_are_trimmed():
+  original_config = {
+    CONFIG_NAME: "test",
+    CONFIG_STOP: " 123 ",
+    CONFIG_BUSES: "12 A, 12B ,12"
+  }
+
+  async def async_mocked_get_bus_times(*args, **kwargs):
+    return []
+
+  with mock.patch.multiple(FirstBusApiClient, async_get_bus_times=async_mocked_get_bus_times):
+    (errors, config) = await async_validate_main_config(original_config)
+
+    assert errors == {}
+    assert config[CONFIG_STOP] == "123"
+    assert config[CONFIG_BUSES] == ["12 A", "12B", "12"]
+
+@pytest.mark.asyncio
+async def test_when_api_unreachable_then_cannot_connect_error_returned():
+  original_config = {
+    CONFIG_NAME: "test",
+    CONFIG_STOP: "123",
+  }
+
+  async def async_mocked_get_bus_times(*args, **kwargs):
+    raise FirstBusApiError("boom")
+
+  with mock.patch.multiple(FirstBusApiClient, async_get_bus_times=async_mocked_get_bus_times):
+    (errors, config) = await async_validate_main_config(original_config)
+
+    assert errors == { "base": "cannot_connect" }

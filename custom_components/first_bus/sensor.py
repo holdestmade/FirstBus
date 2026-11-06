@@ -1,104 +1,137 @@
-import copy
-from datetime import (timedelta)
+from datetime import datetime
 import logging
 
-from homeassistant.util.dt import (now)
 from homeassistant.components.sensor import (
-    SensorEntity,
+  SensorDeviceClass,
+  SensorEntity,
 )
-from .const import (
-  CONFIG_NAME,
-  CONFIG_STOP,
-  CONFIG_BUSES,
-  MINUTES_BETWEEN_UPDATES
-)
+from homeassistant.const import UnitOfTime
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.event import async_track_time_change
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util.dt import now
 
-from .api_client import (FirstBusApiClient)
+from . import FirstBusConfigEntry
+from .const import DOMAIN, MANUFACTURER
+from .coordinator import FirstBusStopCoordinator
 from .utils import (
+  calculate_minutes_remaining,
   get_next_bus,
-  get_buses,
-  calculate_minutes_remaining
 )
 
 _LOGGER = logging.getLogger(__name__)
 
-SCAN_INTERVAL = timedelta(minutes=1)
+# Entities are updated by the coordinators
+PARALLEL_UPDATES = 0
 
-async def async_setup_entry(hass, entry, async_add_entities):
-  """Setup sensors based on our entry"""
 
-  entities = [FirstBusNextBus(entry.data)]
+async def async_setup_entry(
+  hass: HomeAssistant,
+  entry: FirstBusConfigEntry,
+  async_add_entities: AddConfigEntryEntitiesCallback,
+):
+  """Setup sensors for each configured stop"""
+  for subentry_id, coordinator in entry.runtime_data.items():
+    async_add_entities(
+      [
+        FirstBusNextBus(coordinator),
+        FirstBusNextBusDue(coordinator),
+      ],
+      config_subentry_id=subentry_id,
+    )
 
-  async_add_entities(entities, True)
 
-class FirstBusNextBus(SensorEntity):
-  """Sensor for the next bus."""
+class FirstBusStopEntity(CoordinatorEntity[FirstBusStopCoordinator]):
+  """Base entity for a stop. Each stop is represented as its own service in Home Assistant."""
 
-  def __init__(self, data):
-    """Init sensor."""
+  _attr_has_entity_name = True
 
-    self._client = FirstBusApiClient()
-    self._data = data
-    self._buses = []
-    self._attributes = {}
-    self._state = None
-    self._mins_since_last_update = 0
-    self._data_last_updated = None
+  def __init__(self, coordinator: FirstBusStopCoordinator) -> None:
+    super().__init__(coordinator)
+    self._attr_device_info = DeviceInfo(
+      identifiers={(DOMAIN, coordinator.stop)},
+      name=coordinator.stop_name,
+      manufacturer=MANUFACTURER,
+      model="Bus stop",
+      serial_number=coordinator.stop,
+      entry_type=DeviceEntryType.SERVICE,
+    )
 
   @property
-  def unique_id(self):
-    """The id of the sensor."""
-    return f"first_bus_{self._data[CONFIG_STOP]}_next_bus"
-    
-  @property
-  def name(self):
-    """Name of the sensor."""
-    return f"First Bus {self._data[CONFIG_NAME]} Next Bus"
+  def next_bus(self) -> dict | None:
+    return get_next_bus(self.coordinator.data, self.coordinator.target_buses, now())
+
+  async def async_added_to_hass(self) -> None:
+    await super().async_added_to_hass()
+
+    # Data is only refreshed every few minutes, but the "next bus" moves on every minute
+    self.async_on_remove(
+      async_track_time_change(self.hass, self._async_minute_tick, second=0)
+    )
+
+  @callback
+  def _async_minute_tick(self, _: datetime) -> None:
+    self.async_write_ha_state()
+
+
+class FirstBusNextBus(FirstBusStopEntity, SensorEntity):
+  """Sensor for the number of minutes until the next bus."""
+
+  _attr_translation_key = "next_bus"
+  _attr_icon = "mdi:bus"
+  _attr_device_class = SensorDeviceClass.DURATION
+  _attr_native_unit_of_measurement = UnitOfTime.MINUTES
+  # The full list of buses changes constantly, so don't bloat the recorder with it
+  _unrecorded_attributes = frozenset({"buses", "data_last_updated"})
+
+  def __init__(self, coordinator: FirstBusStopCoordinator) -> None:
+    super().__init__(coordinator)
+    # Kept the same as previous versions so existing entities (and their history) are preserved
+    self._attr_unique_id = f"first_bus_{coordinator.stop}_next_bus"
 
   @property
-  def icon(self):
-    """Icon of the sensor."""
-    return "mdi:bus"
+  def native_value(self):
+    next_bus = self.next_bus
+    return calculate_minutes_remaining(next_bus["due"], now()) if next_bus is not None else None
 
   @property
   def extra_state_attributes(self):
-    """Attributes of the sensor."""
-    return self._attributes
+    attributes = dict(self.next_bus or {})
+    attributes["stop"] = self.coordinator.stop
+    attributes["buses"] = self.coordinator.data or []
+
+    if self.coordinator.data_last_updated is not None:
+      attributes["data_last_updated"] = self.coordinator.data_last_updated
+
+    return attributes
+
+
+class FirstBusNextBusDue(FirstBusStopEntity, SensorEntity):
+  """Sensor for the timestamp of the next bus."""
+
+  _attr_translation_key = "next_bus_due"
+  _attr_icon = "mdi:bus-clock"
+  _attr_device_class = SensorDeviceClass.TIMESTAMP
+
+  def __init__(self, coordinator: FirstBusStopCoordinator) -> None:
+    super().__init__(coordinator)
+    self._attr_unique_id = f"first_bus_{coordinator.stop}_next_bus_due"
 
   @property
-  def native_unit_of_measurement(self):
-    return "minutes"
+  def native_value(self):
+    next_bus = self.next_bus
+    return next_bus["due"] if next_bus is not None else None
 
   @property
-  def state(self):
-    """The state of the sensor."""
-    return calculate_minutes_remaining(self._state, now()) 
+  def extra_state_attributes(self):
+    next_bus = self.next_bus
+    if next_bus is None:
+      return None
 
-  async def async_update(self):
-    """Retrieve the next bus"""
-    self._mins_since_last_update = self._mins_since_last_update - 1
-
-    # We only want to update every 5 minutes so we don't hammer the service
-    data_last_updated = None
-    if self._mins_since_last_update <= 0:
-      bus_times = await self._client.async_get_bus_times(self._data[CONFIG_STOP])
-      buses = get_buses(bus_times, now(), self._data[CONFIG_BUSES])
-      self._buses = buses
-      self._mins_since_last_update = MINUTES_BETWEEN_UPDATES
-      self._data_last_updated = now()
-    
-    next_bus = get_next_bus(self._buses, self._data[CONFIG_BUSES], now())
-    self._attributes = copy.copy(next_bus) if next_bus is not None else None
-    if (self._attributes is None):
-      self._attributes = {}
-    
-    self._attributes["stop"] = self._data[CONFIG_STOP]
-    self._attributes["buses"] = self._buses
-
-    if self._data_last_updated is not None:
-      self._attributes["data_last_updated"] = self._data_last_updated
-    
-    if next_bus is not None:
-      self._state = next_bus["due"]
-    else:
-      self._state = None
+    return {
+      "service_number": next_bus["service_number"],
+      "destination": next_bus["destination"],
+      "is_live": next_bus["is_live"],
+    }

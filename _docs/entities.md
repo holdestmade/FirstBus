@@ -1,10 +1,14 @@
 # Entities
 
-Below is the list of entities that will be created with each instance of the integration.
+Below is the list of entities that will be created for each configured stop. Each stop is represented as its own service within the integration.
 
 ### Next Bus
 
-`sensor.first_bus_<<NAME_OF_SENSOR>>_next_bus`
+`sensor.<<NAME_OF_STOP>>_next_bus`
+
+!!! note
+
+    Stops created before the move to a single integration entry keep their original entity id of `sensor.first_bus_<<NAME_OF_STOP>>_next_bus`.
 
 This will provide the number of minutes until one of the specified buses (or any if no specific buses were specified) reach the bus stop. If there is no known next bus, then `none`/`unknown` will be returned.
 
@@ -23,6 +27,8 @@ The following attributes are available in addition
 | `buses` | `list` | The collection of known upcoming buses for the stop, filtered to the selected buses if configured. |
 | `data_last_updated` | `datetime` | The timestamp when the underlying data was last updated |
 
+`buses` and `data_last_updated` are not recorded in the Home Assistant database, to avoid bloating it with data that changes every few minutes.
+
 For each bus in `buses`, you can find the following attributes
 
 | Attribute | Type | Notes |
@@ -31,4 +37,20 @@ For each bus in `buses`, you can find the following attributes
 | `service_number` | `string` | The name/number of the next bus |
 | `destination` | `string` | The destination of the next bus |
 | `due` | `datetime` | The timestamp of when the next bus is due |
+| `is_live` | `boolean` | Determines if the bus is being tracked (`true`) or is from the timetable (`false`) |
+
+If the stop's data can't be retrieved (e.g. First Bus is unavailable), the sensor will become `unavailable` until the next successful refresh. Other stops are unaffected.
+
+### Next Bus Due
+
+`sensor.<<NAME_OF_STOP>>_next_bus_due`
+
+This will provide the timestamp of when one of the specified buses (or any if no specific buses were specified) is next due at the bus stop. This is useful for dashboards (where it's shown as a relative time) and for time based automation triggers. If there is no known next bus, then `unknown` will be returned.
+
+The following attributes are available in addition
+
+| Attribute | Type | Notes |
+|-----------|------|-------|
+| `service_number` | `string` | The name/number of the next bus |
+| `destination` | `string` | The destination of the next bus |
 | `is_live` | `boolean` | Determines if the bus is being tracked (`true`) or is from the timetable (`false`) |

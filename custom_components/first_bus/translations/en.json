@@ -3,46 +3,85 @@
   "config": {
     "step": {
       "user": {
-        "title": "First Bus Stop",
-        "description": "Setup your bus stop information.",
+        "title": "First Bus",
+        "description": "Setup your first bus stop. Additional stops can be added afterwards from the integration page.",
         "data": {
           "Name": "Name",
           "Stop": "Stop ATCO code",
           "Buses": "Buses"
         },
         "data_description": {
-          "Name": "This is the name to help identify the stop. It will also be used in any created sensors. (sensor.first_bus_NAME_OF_SENSOR_next_bus)",
+          "Name": "This is the name to help identify the stop. It will also be used in any created sensors. (sensor.NAME_OF_STOP_next_bus)",
           "Stop": "Instructions to find your ATCO code can be found at {faq_atco_code_url}",
           "Buses": "You can filter to specific buses, comma separated, or leave blank to see all buses"
         }
       }
     },
     "error": {
+      "cannot_connect": "Unable to reach First Bus. Please try again later.",
       "invalid_buses": "Buses must be alphanumeric and spaces separated by commas",
       "invalid_stop": "Bus stop is not recognised by First Bus. Please check and try again.",
       "duplicate_stop": "This bus stop has already been configured. Please check and try again."
     },
     "abort": {
+      "already_configured": "First Bus is already configured. Add additional stops from the integration page.",
+      "single_instance_allowed": "First Bus is already configured. Add additional stops from the integration page."
     }
   },
-  "options": {
-    "step": {
-      "user": {
-        "title": "First Bus Stop",
-        "description": "Update your bus stop information.",
-        "data": {
-          "Buses": "Buses"
+  "config_subentries": {
+    "stop": {
+      "entry_type": "Bus stop",
+      "initiate_flow": {
+        "user": "Add bus stop"
+      },
+      "step": {
+        "user": {
+          "title": "Add bus stop",
+          "description": "Setup a bus stop to track.",
+          "data": {
+            "Name": "Name",
+            "Stop": "Stop ATCO code",
+            "Buses": "Buses"
+          },
+          "data_description": {
+            "Name": "This is the name to help identify the stop. It will also be used in any created sensors. (sensor.NAME_OF_STOP_next_bus)",
+            "Stop": "Instructions to find your ATCO code can be found at {faq_atco_code_url}",
+            "Buses": "You can filter to specific buses, comma separated, or leave blank to see all buses"
+          }
         },
-        "data_description": {
-          "Buses": "You can filter to specific buses, comma separated, or leave blank to see all buses"
+        "reconfigure": {
+          "title": "Update bus stop",
+          "description": "Update the bus stop {stop}.",
+          "data": {
+            "Name": "Name",
+            "Buses": "Buses"
+          },
+          "data_description": {
+            "Name": "This is the name to help identify the stop.",
+            "Buses": "You can filter to specific buses, comma separated, or leave blank to see all buses"
+          }
         }
+      },
+      "error": {
+        "cannot_connect": "Unable to reach First Bus. Please try again later.",
+        "invalid_buses": "Buses must be alphanumeric and spaces separated by commas",
+        "invalid_stop": "Bus stop is not recognised by First Bus. Please check and try again.",
+        "duplicate_stop": "This bus stop has already been configured. Please check and try again."
+      },
+      "abort": {
+        "already_configured": "This bus stop has already been configured.",
+        "reconfigure_successful": "Bus stop updated successfully."
       }
-    },
-    "error": {
-      "invalid_buses": "Buses must be alphanumeric and spaces separated by commas",
-      "invalid_stop": "Bus stop is not recognised by First Bus. Please check and try again."
-    },
-    "abort": {
+    }
+  },
+  "entity": {
+    "sensor": {
+      "next_bus": {
+        "name": "Next bus"
+      },
+      "next_bus_due": {
+        "name": "Next bus due"
+      }
     }
   }
 }

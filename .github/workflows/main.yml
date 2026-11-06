@@ -41,7 +41,7 @@ jobs:
           pip install -r requirements.test.txt
       - name: Run unit tests
         run: |
-          python -m pytest tests/unit
+          python -m pytest tests/unit tests/component
   integration_tests:
     if: ${{ github.event_name != 'schedule' || github.repository_owner == 'BottlecapDave' }}
     name: Integration Tests
