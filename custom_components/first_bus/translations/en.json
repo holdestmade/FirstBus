@@ -81,6 +81,9 @@
       },
       "next_bus_due": {
         "name": "Next bus due"
+      },
+      "route_next_bus": {
+        "name": "Route {service} next bus"
       }
     }
   }
