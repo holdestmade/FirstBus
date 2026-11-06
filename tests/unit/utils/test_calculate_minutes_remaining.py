@@ -11,6 +11,7 @@ now = parse_datetime('2022-01-01T10:00:00Z')
   (now + timedelta(minutes=35), 35),
   (now - timedelta(seconds=31), 0),
   (now - timedelta(minutes=2), -2),
+  (now + timedelta(days=1, minutes=5), 1445),
 ])
 async def test_when_calculate_minutes_remaining_is_called_then_result_is_correct(target_timestamp, expected_minutes_remaining):
   # Act

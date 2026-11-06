@@ -1,112 +1,137 @@
-import voluptuous as vol
 import logging
+from typing import Any
 
-from homeassistant.config_entries import (ConfigFlow, OptionsFlow)
+from homeassistant.config_entries import (
+  ConfigEntry,
+  ConfigFlow,
+  ConfigFlowResult,
+  ConfigSubentryFlow,
+  SubentryFlowResult,
+)
 from homeassistant.core import callback
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
+from .api_client import FirstBusApiClient
+from .config import async_validate_main_config
 from .const import (
-  CONFIG_STOP,
-  DOMAIN,
-
-  CONFIG_NAME,
   CONFIG_BUSES,
-
+  CONFIG_NAME,
+  CONFIG_STOP,
+  DATA_SCHEMA_RECONFIGURE_STOP,
   DATA_SCHEMA_STOP,
+  DEFAULT_TITLE,
+  DOMAIN,
+  SUBENTRY_TYPE_STOP,
 )
 
-from .config import merge_config, async_validate_main_config
-
 _LOGGER = logging.getLogger(__name__)
-
-def get_atco_codes(hass):
-  atco_codes: list[str] = []  
-  for entry in hass.config_entries.async_entries(DOMAIN, include_ignore=False):
-    atco_code = entry.data[CONFIG_STOP]
-    atco_codes.append(atco_code)
-
-  return atco_codes
 
 description_placeholders = {
   "faq_atco_code_url": "https://bottlecapdave.github.io/HomeAssistant-FirstBus/faq/#how-do-i-find-my-atco-code",
 }
 
-class FirstBusConfigFlow(ConfigFlow, domain=DOMAIN): 
-  """Config flow."""
 
-  VERSION = 1
+def _stop_subentry_data(config: dict) -> dict:
+  return {
+    CONFIG_NAME: config[CONFIG_NAME],
+    CONFIG_STOP: config[CONFIG_STOP],
+    CONFIG_BUSES: config[CONFIG_BUSES],
+  }
 
-  async def async_step_user(self, user_input):
+
+class FirstBusConfigFlow(ConfigFlow, domain=DOMAIN):
+  """Config flow. Creates the single First Bus entry along with the first stop."""
+
+  VERSION = 2
+
+  @classmethod
+  @callback
+  def async_get_supported_subentry_types(cls, config_entry: ConfigEntry) -> dict[str, type[ConfigSubentryFlow]]:
+    """Return subentries supported by this integration."""
+    return {SUBENTRY_TYPE_STOP: StopSubentryFlowHandler}
+
+  async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
     """Setup based on user config"""
+    await self.async_set_unique_id(DOMAIN)
+    self._abort_if_unique_id_configured()
 
     errors = {}
     if user_input is not None:
-      atco_codes = get_atco_codes(self.hass)
-      (errors, config) = await async_validate_main_config(user_input, atco_codes)
+      client = FirstBusApiClient(async_get_clientsession(self.hass))
+      (errors, config) = await async_validate_main_config(user_input, [], client)
 
-      # Setup our basic sensors
       if len(errors) < 1:
         return self.async_create_entry(
-          title=f"Bus Stop {config[CONFIG_NAME]}", 
-          data=config
+          title=DEFAULT_TITLE,
+          data={},
+          subentries=[
+            {
+              "subentry_type": SUBENTRY_TYPE_STOP,
+              "data": _stop_subentry_data(config),
+              "title": config[CONFIG_NAME],
+              "unique_id": config[CONFIG_STOP],
+            }
+          ],
         )
 
     return self.async_show_form(
-      step_id="user", data_schema=DATA_SCHEMA_STOP, errors=errors, description_placeholders=description_placeholders
+      step_id="user",
+      data_schema=self.add_suggested_values_to_schema(DATA_SCHEMA_STOP, user_input or {}),
+      errors=errors,
+      description_placeholders=description_placeholders,
     )
 
-  @staticmethod
-  @callback
-  def async_get_options_flow(entry):
-    return OptionsFlowHandler(entry)
 
-class OptionsFlowHandler(OptionsFlow):
-  """Handles options flow for the component."""
+class StopSubentryFlowHandler(ConfigSubentryFlow):
+  """Handles adding and reconfiguring individual bus stops."""
 
-  def __init__(self, entry) -> None:
-    self._entry = entry
+  async def async_step_user(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
+    """Add a new bus stop"""
+    errors = {}
+    if user_input is not None:
+      entry = self._get_entry()
+      existing_stops = [subentry.unique_id for subentry in entry.subentries.values()]
+      client = FirstBusApiClient(async_get_clientsession(self.hass))
+      (errors, config) = await async_validate_main_config(user_input, existing_stops, client)
 
-  async def async_step_init(self, user_input):
-    """Manage the options for the custom component."""
-
-    config = merge_config(self._entry.data, self._entry.options)
+      if len(errors) < 1:
+        return self.async_create_entry(
+          title=config[CONFIG_NAME],
+          data=_stop_subentry_data(config),
+          unique_id=config[CONFIG_STOP],
+        )
 
     return self.async_show_form(
-      step_id="user", 
-      data_schema=self.add_suggested_values_to_schema(
-        vol.Schema({
-          vol.Optional(CONFIG_BUSES): str,
-        }),
-        {
-          CONFIG_BUSES: ','.join(config[CONFIG_BUSES])
-        }
-      ),
-      description_placeholders=description_placeholders
+      step_id="user",
+      data_schema=self.add_suggested_values_to_schema(DATA_SCHEMA_STOP, user_input or {}),
+      errors=errors,
+      description_placeholders=description_placeholders,
     )
 
-  async def async_step_user(self, user_input):
-    """Manage the options for the custom component."""
+  async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
+    """Update the name/buses of an existing stop"""
+    subentry = self._get_reconfigure_subentry()
 
     errors = {}
-    
-    config = merge_config(self._entry.data, self._entry.options, user_input if user_input is not None else {})
+    if user_input is not None:
+      (errors, config) = await async_validate_main_config(user_input)
 
-    _LOGGER.debug(f"Update config {config}")
+      if len(errors) < 1:
+        return self.async_update_and_abort(
+          self._get_entry(),
+          subentry,
+          title=config[CONFIG_NAME],
+          data=_stop_subentry_data({**subentry.data, **config}),
+        )
 
-    (errors, config) = await async_validate_main_config(config)
-
-    if len(errors) < 1:
-      return self.async_create_entry(title="", data=config)
+    suggested_values = user_input if user_input is not None else {
+      CONFIG_NAME: subentry.data.get(CONFIG_NAME, subentry.title),
+      CONFIG_BUSES: ','.join(subentry.data.get(CONFIG_BUSES) or []),
+    }
 
     return self.async_show_form(
-      step_id="user", 
-      data_schema=self.add_suggested_values_to_schema(
-        vol.Schema({
-          vol.Optional(CONFIG_BUSES): str,
-        }),
-        {
-          CONFIG_BUSES: ','.join(config[CONFIG_BUSES])
-        }
-      ),
-      description_placeholders=description_placeholders,
-      errors=errors
+      step_id="reconfigure",
+      data_schema=self.add_suggested_values_to_schema(DATA_SCHEMA_RECONFIGURE_STOP, suggested_values),
+      errors=errors,
+      description_placeholders={**description_placeholders, "stop": subentry.data[CONFIG_STOP]},
     )
